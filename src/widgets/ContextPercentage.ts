@@ -8,16 +8,24 @@ import type {
 } from '../types/Widget';
 import { getContextConfig } from '../utils/model-context';
 
+type DisplayMode = 'text' | 'progress' | 'progress-short';
+
 export class ContextPercentageWidget implements Widget {
     getDefaultColor(): string { return 'blue'; }
     getDescription(): string { return 'Shows percentage of context window used or remaining'; }
     getDisplayName(): string { return 'Context %'; }
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
         const isInverse = item.metadata?.inverse === 'true';
+        const displayMode = (item.metadata?.display ?? 'text') as DisplayMode;
         const modifiers: string[] = [];
 
         if (isInverse) {
             modifiers.push('remaining');
+        }
+        if (displayMode === 'progress') {
+            modifiers.push('progress bar');
+        } else if (displayMode === 'progress-short') {
+            modifiers.push('short bar');
         }
 
         return {
@@ -37,28 +45,75 @@ export class ContextPercentageWidget implements Widget {
                 }
             };
         }
+        if (action === 'toggle-progress') {
+            const currentMode = (item.metadata?.display ?? 'text') as DisplayMode;
+            let nextMode: DisplayMode;
+
+            if (currentMode === 'text') {
+                nextMode = 'progress';
+            } else if (currentMode === 'progress') {
+                nextMode = 'progress-short';
+            } else {
+                nextMode = 'text';
+            }
+
+            return {
+                ...item,
+                metadata: {
+                    ...item.metadata,
+                    display: nextMode
+                }
+            };
+        }
         return null;
+    }
+
+    private renderProgressBar(percentage: number, barWidth: number): string {
+        const progress = percentage / 100;
+        const filledWidth = Math.floor(progress * barWidth);
+        const emptyWidth = barWidth - filledWidth;
+        return '█'.repeat(filledWidth) + '░'.repeat(emptyWidth);
     }
 
     render(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
         const isInverse = item.metadata?.inverse === 'true';
+        const displayMode = (item.metadata?.display ?? 'text') as DisplayMode;
 
         if (context.isPreview) {
-            const previewValue = isInverse ? '90.7%' : '9.3%';
+            const previewPercentage = isInverse ? 90.7 : 9.3;
+            const previewValue = `${previewPercentage.toFixed(1)}%`;
+
+            if (displayMode === 'progress') {
+                const bar = this.renderProgressBar(previewPercentage, 32);
+                return item.rawValue ? `[${bar}] ${previewValue}` : `Ctx [${bar}] ${previewValue}`;
+            } else if (displayMode === 'progress-short') {
+                const bar = this.renderProgressBar(previewPercentage, 16);
+                return item.rawValue ? `[${bar}] ${previewValue}` : `Ctx [${bar}] ${previewValue}`;
+            }
             return item.rawValue ? previewValue : `Ctx: ${previewValue}`;
         } else if (context.tokenMetrics) {
             const modelId = context.data?.model?.id;
             const contextConfig = getContextConfig(modelId);
             const usedPercentage = Math.min(100, (context.tokenMetrics.contextLength / contextConfig.maxTokens) * 100);
             const displayPercentage = isInverse ? (100 - usedPercentage) : usedPercentage;
-            return item.rawValue ? `${displayPercentage.toFixed(1)}%` : `Ctx: ${displayPercentage.toFixed(1)}%`;
+            const percentageValue = `${displayPercentage.toFixed(1)}%`;
+
+            if (displayMode === 'progress') {
+                const bar = this.renderProgressBar(displayPercentage, 32);
+                return item.rawValue ? `[${bar}] ${percentageValue}` : `Ctx [${bar}] ${percentageValue}`;
+            } else if (displayMode === 'progress-short') {
+                const bar = this.renderProgressBar(displayPercentage, 16);
+                return item.rawValue ? `[${bar}] ${percentageValue}` : `Ctx [${bar}] ${percentageValue}`;
+            }
+            return item.rawValue ? percentageValue : `Ctx: ${percentageValue}`;
         }
         return null;
     }
 
     getCustomKeybinds(): CustomKeybind[] {
         return [
-            { key: 'l', label: '(l)eft/remaining', action: 'toggle-inverse' }
+            { key: 'l', label: '(l)eft/remaining', action: 'toggle-inverse' },
+            { key: 'p', label: '(p)rogress toggle', action: 'toggle-progress' }
         ];
     }
 
